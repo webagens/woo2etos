@@ -85,11 +85,9 @@ class WP2ETOS {
             }
         }
 
-        // Dry run request
-        $dry_result = null;
-        if ( isset($_POST['dry_run']) && check_admin_referer( 'wp2etos_at_run', 'wp2etos_nonce3' ) ){
-            $dry_result = $this->collect_products_and_terms(true);
-        }
+        // Retrieve dry-run result from transient if available
+        $dry_result = get_transient( 'wp2etos_at_dryrun' );
+        delete_transient( 'wp2etos_at_dryrun' );
 
         ?>
         <div class="wrap">

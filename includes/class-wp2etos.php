@@ -46,7 +46,7 @@ class WP2ETOS {
         }
 
         // Worker
-        add_action( 'wp2etos_sync_product', array( $this, 'worker_sync_product' ) );
+        add_action( 'wp2etos_sync_product', array( $this, 'worker_sync_product' ), 10, 3 );
     }
 
     /** Admin page */
@@ -248,19 +248,16 @@ class WP2ETOS {
                 $terms = $this->collect_size_terms_for_product( $pid );
                 if ( empty($terms) ) continue;
                 $links += count($terms);
+                $hash  = $this->source_hash( $terms );
                 if ( function_exists('as_enqueue_async_action') ){
                     as_enqueue_async_action( 'wp2etos_sync_product', array(
                         'product_id' => $pid,
                         'terms'      => $terms,
-                        'hash'       => $this->source_hash($terms),
+                        'hash'       => $hash,
                     ));
                 } else {
                     // fallback: do immediate (still safe)
-                    $this->worker_sync_product( array(
-                        'product_id' => $pid,
-                        'terms'      => $terms,
-                        'hash'       => $this->source_hash($terms),
-                    ));
+                    $this->worker_sync_product( $pid, $terms, $hash );
                 }
                 $count++;
                 if ( $count % $batch == 0 ){
@@ -312,19 +309,15 @@ class WP2ETOS {
                 'hash'       => $hash,
             ));
         } else {
-            $this->worker_sync_product( array(
-                'product_id' => $pid,
-                'terms'      => $terms,
-                'hash'       => $hash,
-            ));
+            $this->worker_sync_product( $pid, $terms, $hash );
         }
     }
 
     /** Worker: create terms & attach attribute (visible=1, variation=0) */
-    public function worker_sync_product( $args ){
-        $pid   = intval($args['product_id']);
-        $terms = array_map('strval', (array)$args['terms']);
-        $hash  = isset($args['hash']) ? (string)$args['hash'] : $this->source_hash($terms);
+    public function worker_sync_product( $pid, $terms = array(), $hash = null ){
+        $pid   = intval( $pid );
+        $terms = array_map( 'strval', (array) $terms );
+        $hash  = $hash ?? $this->source_hash( $terms );
 
         // Safety: avoid recursion
         remove_action( 'woocommerce_after_product_object_save', array( $this, 'maybe_queue_sync' ), 10 );

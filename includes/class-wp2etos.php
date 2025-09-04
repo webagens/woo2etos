@@ -85,6 +85,13 @@ class WP2ETOS {
             }
         }
 
+        // Retrieve run result from transient if available
+        $run_result = get_transient( 'wp2etos_at_run' );
+        delete_transient( 'wp2etos_at_run' );
+        if ( $run_result ){
+            echo '<div class="notice notice-success"><p>Sincronizzazione avviata: ' . intval( $run_result['products'] ) . ' prodotti messi in coda.</p></div>';
+        }
+
         // Retrieve dry-run result from transient if available
         $dry_result = get_transient( 'wp2etos_at_dryrun' );
         delete_transient( 'wp2etos_at_dryrun' );
@@ -192,6 +199,8 @@ class WP2ETOS {
 
         if ( $do_run ){
             $res = $this->collect_products_and_terms(false); // will schedule
+            set_transient( 'wp2etos_at_run', $res, 60 );
+            error_log( sprintf( '[WP2ETOS] run queued: %d prodotti, %d nuovi termini, %d associazioni', intval($res['products']), intval($res['new_terms']), intval($res['links']) ) );
             wp_safe_redirect( add_query_arg( array('page'=>WP2ETOS_AT_SLUG, 'done'=>'1'), admin_url('admin.php') ) );
             exit;
         } else {

@@ -379,7 +379,7 @@ class Woo2Etos {
         }
     }
 
-    /** Worker: create terms & attach attribute (visible=1, variation=0) */
+    /** Worker: create terms & attach attribute (visible=0, variation=0) */
     public function worker_sync_product( $pid, $terms = array(), $hash = null ){
         $pid   = intval( $pid );
         $terms = array_map( 'strval', (array) $terms );

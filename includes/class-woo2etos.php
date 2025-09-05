@@ -38,7 +38,6 @@ class Woo2Etos {
 
         // Worker
         add_action( 'woo2etos_sync_product', array( $this, 'worker_sync_product' ), 10, 3 );
-        add_filter( 'woocommerce_attribute_taxonomies', [ $this, 'hide_aggregator_attribute' ], 10, 1 );
     }
 
     public function register_recurring_sync() {
@@ -192,19 +191,6 @@ class Woo2Etos {
             }
         }
         return true;
-    }
-
-    public function hide_aggregator_attribute( $taxonomies ) {
-        if ( ! is_admin() ) return $taxonomies;
-        $screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
-        if ( $screen && 'product' === $screen->id ) {
-            foreach ( $taxonomies as $i => $tax ) {
-                if ( WOO2ETOS_AT_TAX_SLUG === $tax->attribute_name ) {
-                    unset( $taxonomies[ $i ] );
-                }
-            }
-        }
-        return $taxonomies;
     }
 
     /** Handle dry-run or run via admin-post */

@@ -1,6 +1,6 @@
 # Woo2Etos
 
-Woo2Etos è un plugin per WooCommerce che aggrega tutti gli attributi che contengono "taglia" in un singolo attributo globale chiamato **Taglia** (`taglia-w2e`).
+Woo2Etos è un plugin per agevolare l'integrazione tra WooCommerce e il gestionale [Etos](https://www.etosweb.com/): aggrega tutti gli attributi che contengono "taglia" nel nome o nello slug, dentro un singolo attributo globale chiamato **Taglia** (`taglia-w2e`).
 
 ## Funzionalità principali
 - Crea e mantiene sincronizzato l'attributo aggregatore per l'integrazione con il gestionale Etos.

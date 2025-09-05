@@ -39,6 +39,7 @@ class Woo2Etos {
         // Worker
         add_action( 'woo2etos_sync_product', array( $this, 'worker_sync_product' ), 10, 3 );
         add_action( 'woo2etos_collect_products', array( $this, 'collect_products_and_terms' ), 10, 3 );
+        add_action( 'woo2etos_run_summary', array( $this, 'run_summary' ) );
     }
 
     public function register_recurring_sync() {
@@ -232,27 +233,10 @@ class Woo2Etos {
         if ( ! current_user_can('manage_woocommerce') ) wp_die('no');
         check_admin_referer( 'woo2etos_at_run', 'woo2etos_nonce3' );
         $do_run = isset($_POST['do_run']) && $_POST['do_run'] === '1';
-
-        $this->ensure_attribute();
-
         if ( $do_run ){
-            $summary = $this->collect_products_and_terms( true, 0, 1 );
-            $final = array(
-                'products'  => count( $summary['products'] ),
-                'new_terms' => count( $summary['new_terms'] ),
-                'links'     => $summary['associations'],
-            );
-            update_option( 'woo2etos_run_final', $final );
-            update_option( 'woo2etos_run_pending', $final['products'] );
             if ( class_exists( 'WC_Admin_Notices' ) ) {
-                $message = sprintf(
-                    'Sincronizzazione iniziata: %d prodotti, %d nuovi termini, %d associazioni.',
-                    $final['products'],
-                    $final['new_terms'],
-                    $final['links']
-                );
                 WC_Admin_Notices::remove_notice( 'woo2etos_run_start' );
-                WC_Admin_Notices::add_custom_notice( 'woo2etos_run_start', $message );
+                WC_Admin_Notices::add_custom_notice( 'woo2etos_run_start', 'Scansione avviata…' );
                 foreach ( array( 'save_notices', 'save_admin_notices', 'save' ) as $m ) {
                     if ( method_exists( 'WC_Admin_Notices', $m ) ) {
                         call_user_func( array( 'WC_Admin_Notices', $m ) );
@@ -261,8 +245,13 @@ class Woo2Etos {
                 }
             }
 
-            $this->collect_products_and_terms( false, 0, 1 );
-            wp_safe_redirect( add_query_arg( array( 'page' => WOO2ETOS_AT_SLUG, 'done' => '1' ), admin_url( 'admin.php' ) ) );
+            if ( function_exists( 'as_enqueue_async_action' ) ) {
+                as_enqueue_async_action( 'woo2etos_run_summary' );
+            } else {
+                $this->run_summary();
+            }
+
+            wp_safe_redirect( admin_url( 'admin.php?page=' . WOO2ETOS_AT_SLUG ) );
             exit;
         } else {
             $res = $this->collect_products_and_terms( true, 0, 1 );
@@ -278,6 +267,38 @@ class Woo2Etos {
             wp_safe_redirect( admin_url( 'admin.php?page=' . WOO2ETOS_AT_SLUG ) );
             exit;
         }
+    }
+
+    /** Compute summary then kick off full sync */
+    public function run_summary(){
+        $this->ensure_attribute();
+
+        $summary = $this->collect_products_and_terms( true, 0, 1 );
+        $final = array(
+            'products'  => count( $summary['products'] ),
+            'new_terms' => count( $summary['new_terms'] ),
+            'links'     => $summary['associations'],
+        );
+        update_option( 'woo2etos_run_final', $final );
+        update_option( 'woo2etos_run_pending', $final['products'] );
+        if ( class_exists( 'WC_Admin_Notices' ) ) {
+            $message = sprintf(
+                'Sincronizzazione iniziata: %d prodotti, %d nuovi termini, %d associazioni.',
+                $final['products'],
+                $final['new_terms'],
+                $final['links']
+            );
+            WC_Admin_Notices::remove_notice( 'woo2etos_run_start' );
+            WC_Admin_Notices::add_custom_notice( 'woo2etos_run_start', $message );
+            foreach ( array( 'save_notices', 'save_admin_notices', 'save' ) as $m ) {
+                if ( method_exists( 'WC_Admin_Notices', $m ) ) {
+                    call_user_func( array( 'WC_Admin_Notices', $m ) );
+                    break;
+                }
+            }
+        }
+
+        $this->collect_products_and_terms( false, 0, 1 );
     }
 
     /** Process a single page of products */

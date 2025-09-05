@@ -382,20 +382,21 @@ class Woo2Etos {
                 'new_terms' => count( $summary['new_terms'] ),
                 'links'     => $summary['links'],
             );
-            set_transient( 'woo2etos_at_run', $final, 60 );
+            update_option( 'woo2etos_run_final', $final );
+            update_option( 'woo2etos_run_pending', $final['products'] );
             delete_option( 'woo2etos_run_summary' );
             if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
                 error_log( sprintf( '[Woo2Etos] run queued: %d prodotti, %d nuovi termini, %d associazioni', $final['products'], $final['new_terms'], $final['links'] ) );
             }
             if ( class_exists( 'WC_Admin_Notices' ) ) {
                 $message = sprintf(
-                    'Sincronizzazione completata: %d prodotti, %d nuovi termini, %d associazioni.',
+                    'Sincronizzazione iniziata: %d prodotti, %d nuovi termini, %d associazioni.',
                     $final['products'],
                     $final['new_terms'],
                     $final['links']
                 );
-                WC_Admin_Notices::remove_notice( 'woo2etos_run_success' );
-                WC_Admin_Notices::add_custom_notice( 'woo2etos_run_success', $message );
+                WC_Admin_Notices::remove_notice( 'woo2etos_run_start' );
+                WC_Admin_Notices::add_custom_notice( 'woo2etos_run_start', $message );
                 WC_Admin_Notices::save_notices();
             }
         }
@@ -496,6 +497,34 @@ class Woo2Etos {
 
         // Reattach hook
         add_action( 'woocommerce_after_product_object_save', array( $this, 'maybe_queue_sync' ), 10, 1 );
+
+        // Track pending jobs for manual run
+        $pending = (int) get_option( 'woo2etos_run_pending', 0 );
+        if ( $pending > 0 ) {
+            $pending--;
+            if ( $pending > 0 ) {
+                update_option( 'woo2etos_run_pending', $pending );
+            } else {
+                delete_option( 'woo2etos_run_pending' );
+                $final = get_option( 'woo2etos_run_final', array() );
+                if ( $final ) {
+                    if ( class_exists( 'WC_Admin_Notices' ) ) {
+                        $message = sprintf(
+                            'Sincronizzazione completata: %d prodotti, %d nuovi termini, %d associazioni.',
+                            $final['products'],
+                            $final['new_terms'],
+                            $final['links']
+                        );
+                        WC_Admin_Notices::remove_notice( 'woo2etos_run_start' );
+                        WC_Admin_Notices::remove_notice( 'woo2etos_run_success' );
+                        WC_Admin_Notices::add_custom_notice( 'woo2etos_run_success', $message );
+                        WC_Admin_Notices::save_notices();
+                    }
+                    set_transient( 'woo2etos_at_run', $final, 60 );
+                }
+                delete_option( 'woo2etos_run_final' );
+            }
+        }
     }
 
     /** Fallback scheduled task: sync recently modified products */

@@ -1,10 +1,10 @@
 <?php
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-class WP2ETOS {
+class Woo2Etos {
 
     private static $instance = null;
-    private $opts = array(); // <--- Add this line
+    private $opts = array();
 
     public static function instance(){
         if ( self::$instance === null ){
@@ -21,12 +21,12 @@ class WP2ETOS {
             'cron_15'        => false, // fallback check every 15 minutes
             'batch_size'     => 100,
         );
-        $opts = get_option( WP2ETOS_AT_OPTION, array() );
+        $opts = get_option( WOO2ETOS_AT_OPTION, array() );
         $this->opts = wp_parse_args( $opts, $defaults );
 
         // Admin UI
         add_action( 'admin_menu', array( $this, 'admin_menu' ) );
-        add_action( 'admin_post_wp2etos_at_run', array( $this, 'handle_run' ) );
+        add_action( 'admin_post_woo2etos_at_run', array( $this, 'handle_run' ) );
 
         // Conditional hooks
         if ( $this->opts['enabled'] && $this->opts['auto_hooks'] ){
@@ -37,16 +37,16 @@ class WP2ETOS {
         add_action( 'init', array( $this, 'register_recurring_sync' ) );
 
         // Worker
-        add_action( 'wp2etos_sync_product', array( $this, 'worker_sync_product' ), 10, 3 );
+        add_action( 'woo2etos_sync_product', array( $this, 'worker_sync_product' ), 10, 3 );
     }
 
     public function register_recurring_sync() {
         if ( $this->opts['enabled'] && $this->opts['cron_15'] 
              && function_exists( 'as_schedule_recurring_action' ) ) {
-            if ( false === as_next_scheduled_action( 'wp2etos_sync_recent' ) ) {
-                as_schedule_recurring_action( time() + 60, 900, 'wp2etos_sync_recent' );
+            if ( false === as_next_scheduled_action( 'woo2etos_sync_recent' ) ) {
+                as_schedule_recurring_action( time() + 60, 900, 'woo2etos_sync_recent' );
             }
-            add_action( 'wp2etos_sync_recent', array( $this, 'sync_recent' ) );
+            add_action( 'woo2etos_sync_recent', array( $this, 'sync_recent' ) );
         }
     }
 
@@ -54,10 +54,10 @@ class WP2ETOS {
     public function admin_menu(){
         add_submenu_page(
             'woocommerce',
-            'WP2Etos – Aggregatore Taglie',
-            'WP2Etos Taglie',
+            'Woo2Etos',
+            'Woo2Etos',
             'manage_woocommerce',
-            WP2ETOS_AT_SLUG,
+            WOO2ETOS_AT_SLUG,
             array( $this, 'render_page' )
         );
     }
@@ -67,17 +67,17 @@ class WP2ETOS {
         if ( ! current_user_can( 'manage_woocommerce' ) ) { return; }
 
         // Save options if posted
-        if ( isset($_POST['wp2etos_save']) && check_admin_referer( 'wp2etos_at_save', 'wp2etos_nonce' ) ){
+        if ( isset($_POST['woo2etos_save']) && check_admin_referer( 'woo2etos_at_save', 'woo2etos_nonce' ) ){
             $this->opts['enabled']    = isset($_POST['enabled']);
             $this->opts['auto_hooks'] = isset($_POST['auto_hooks']);
             $this->opts['cron_15']    = isset($_POST['cron_15']);
             $this->opts['batch_size'] = max(10, intval($_POST['batch_size'] ?? 100));
-            update_option( WP2ETOS_AT_OPTION, $this->opts );
+            update_option( WOO2ETOS_AT_OPTION, $this->opts );
             echo '<div class="notice notice-success"><p>Impostazioni salvate.</p></div>';
         }
 
         // Ensure attribute button
-        if ( isset($_POST['ensure_attr']) && check_admin_referer( 'wp2etos_at_attr', 'wp2etos_nonce2' ) ){
+        if ( isset($_POST['ensure_attr']) && check_admin_referer( 'woo2etos_at_attr', 'woo2etos_nonce2' ) ){
             $result = $this->ensure_attribute();
             if ( is_wp_error($result) ){
                 echo '<div class="notice notice-error"><p>Errore: '.esc_html($result->get_error_message()).'</p></div>';
@@ -87,23 +87,26 @@ class WP2ETOS {
         }
 
         // Retrieve run result from transient if available
-        $run_result = get_transient( 'wp2etos_at_run' );
-        delete_transient( 'wp2etos_at_run' );
+        $run_result = get_transient( 'woo2etos_at_run' );
+        delete_transient( 'woo2etos_at_run' );
         if ( $run_result ){
             echo '<div class="notice notice-success"><p>Sincronizzazione avviata: ' . intval( $run_result['products'] ) . ' prodotti messi in coda.</p></div>';
         }
 
         // Retrieve dry-run result from transient if available
-        $dry_result = get_transient( 'wp2etos_at_dryrun' );
-        delete_transient( 'wp2etos_at_dryrun' );
+        $dry_result = get_transient( 'woo2etos_at_dryrun' );
+        delete_transient( 'woo2etos_at_dryrun' );
 
         ?>
         <div class="wrap">
-            <h1>WP2Etos – Aggregatore Taglie (Etos → WooCommerce)</h1>
-            <p>Questo plugin crea e aggiorna un attributo aggregatore chiamato <strong>Taglia</strong> (slug: <code><?php echo esc_html(WP2ETOS_AT_TAX_SLUG); ?></code>) che unifica i valori provenienti dagli attributi Etos che contengono “taglia”. Non tocca le varianti (l'attributo aggregato è informativo, non di variazione). Nessuna azione automatica finché non abiliti i toggle.</p>
+            <h1>Woo2Etos</h1>
+            <h2>Aggregatore degli attributi Taglie per il gestionale Etos</h2>
+            <p>Questo plugin crea e aggiorna un attributo aggregatore chiamato <strong>Taglia</strong> (slug: <code><?php echo esc_html(WOO2ETOS_AT_TAX_SLUG); ?></code>) che unifica i valori provenienti dagli attributi Etos che contengono “taglia” nel loro nome.</p>
+            <p>Non tocca le varianti: l'attributo aggregato è informativo, non di variazione.</p>
+            <p>Nessuna azione automatica viene innescata finché non abiliti i toggle.</p>
 
             <form method="post">
-                <?php wp_nonce_field( 'wp2etos_at_save', 'wp2etos_nonce' ); ?>
+                <?php wp_nonce_field( 'woo2etos_at_save', 'woo2etos_nonce' ); ?>
                 <table class="form-table">
                     <tr>
                         <th scope="row">Kill switch generale</th>
@@ -122,26 +125,26 @@ class WP2ETOS {
                         <td><input type="number" name="batch_size" value="<?php echo esc_attr( $this->opts['batch_size'] ); ?>" min="10" step="10"></td>
                     </tr>
                 </table>
-                <p><button class="button button-primary" name="wp2etos_save" value="1">Salva impostazioni</button></p>
+                <p><button class="button button-primary" name="woo2etos_save" value="1">Salva impostazioni</button></p>
             </form>
 
             <hr>
             <h2>Strumenti</h2>
             <form method="post" style="display:inline-block;margin-right:10px;">
-                <?php wp_nonce_field( 'wp2etos_at_attr', 'wp2etos_nonce2' ); ?>
-                <button class="button" name="ensure_attr" value="1">Verifica / Crea attributo “Taglia" (taglia-wc)</button>
+                <?php wp_nonce_field( 'woo2etos_at_attr', 'woo2etos_nonce2' ); ?>
+                <button class="button" name="ensure_attr" value="1">Verifica / Crea attributo “Taglia" (<?php echo esc_html(WOO2ETOS_AT_TAX_SLUG); ?>)</button>
             </form>
 
             <form method="post" action="<?php echo esc_url( admin_url('admin-post.php') ); ?>" style="display:inline-block;">
-                <?php wp_nonce_field( 'wp2etos_at_run', 'wp2etos_nonce3' ); ?>
-                <input type="hidden" name="action" value="wp2etos_at_run">
+                <?php wp_nonce_field( 'woo2etos_at_run', 'woo2etos_nonce3' ); ?>
+                <input type="hidden" name="action" value="woo2etos_at_run">
                 <input type="hidden" name="do_run" value="0">
                 <button class="button">Dry-run (anteprima)</button>
             </form>
 
             <form method="post" action="<?php echo esc_url( admin_url('admin-post.php') ); ?>" style="display:inline-block;margin-left:10px;">
-                <?php wp_nonce_field( 'wp2etos_at_run', 'wp2etos_nonce3' ); ?>
-                <input type="hidden" name="action" value="wp2etos_at_run">
+                <?php wp_nonce_field( 'woo2etos_at_run', 'woo2etos_nonce3' ); ?>
+                <input type="hidden" name="action" value="woo2etos_at_run">
                 <input type="hidden" name="do_run" value="1">
                 <button class="button button-primary">Esegui sincronizzazione ora</button>
             </form>
@@ -167,11 +170,11 @@ class WP2ETOS {
         // Check if attribute definition exists
         global $wpdb;
         $table = $wpdb->prefix . 'woocommerce_attribute_taxonomies';
-        $exists = $wpdb->get_var( $wpdb->prepare("SELECT attribute_id FROM $table WHERE attribute_name = %s", WP2ETOS_AT_TAX_SLUG ) );
+        $exists = $wpdb->get_var( $wpdb->prepare("SELECT attribute_id FROM $table WHERE attribute_name = %s", WOO2ETOS_AT_TAX_SLUG ) );
         if ( ! $exists ){
             $args = array(
                 'name'         => 'Taglia',
-                'slug'         => WP2ETOS_AT_TAX_SLUG,
+                'slug'         => WOO2ETOS_AT_TAX_SLUG,
                 'type'         => 'select',
                 'order_by'     => 'menu_order',
                 'has_archives' => false,
@@ -193,7 +196,7 @@ class WP2ETOS {
     /** Handle dry-run or run via admin-post */
     public function handle_run(){
         if ( ! current_user_can('manage_woocommerce') ) wp_die('no');
-        check_admin_referer( 'wp2etos_at_run', 'wp2etos_nonce3' );
+        check_admin_referer( 'woo2etos_at_run', 'woo2etos_nonce3' );
         $do_run = isset($_POST['do_run']) && $_POST['do_run'] === '1';
 
         $this->ensure_attribute();
@@ -205,9 +208,9 @@ class WP2ETOS {
                 'new_terms' => count( $res['new_terms'] ),
                 'links'     => $res['associations'],
             );
-            set_transient( 'wp2etos_at_run', $summary, 60 );
-            error_log( sprintf( '[WP2ETOS] run queued: %d prodotti, %d nuovi termini, %d associazioni', $summary['products'], $summary['new_terms'], $summary['links'] ) );
-            wp_safe_redirect( add_query_arg( array('page'=>WP2ETOS_AT_SLUG, 'done'=>'1'), admin_url('admin.php') ) );
+            set_transient( 'woo2etos_at_run', $summary, 60 );
+            error_log( sprintf( '[Woo2Etos] run queued: %d prodotti, %d nuovi termini, %d associazioni', $summary['products'], $summary['new_terms'], $summary['links'] ) );
+            wp_safe_redirect( add_query_arg( array('page'=>WOO2ETOS_AT_SLUG, 'done'=>'1'), admin_url('admin.php') ) );
             exit;
         } else {
             $res = $this->collect_products_and_terms( true );
@@ -218,9 +221,9 @@ class WP2ETOS {
             );
             // render on the same page by reloading POST on render_page
             // We'll store a transient with the last dry-run summary for display
-            set_transient( 'wp2etos_at_dryrun', $summary, 60 );
+            set_transient( 'woo2etos_at_dryrun', $summary, 60 );
             // Redirect back to page to show results
-            wp_safe_redirect( admin_url( 'admin.php?page=' . WP2ETOS_AT_SLUG ) );
+            wp_safe_redirect( admin_url( 'admin.php?page=' . WOO2ETOS_AT_SLUG ) );
             exit;
         }
     }
@@ -260,7 +263,7 @@ class WP2ETOS {
 
         $new_terms = array();
         foreach ( array_keys( $all_terms ) as $name ) {
-            if ( ! term_exists( $name, WP2ETOS_AT_TAX ) ) {
+            if ( ! term_exists( $name, WOO2ETOS_AT_TAX ) ) {
                 $new_terms[ $name ] = true;
             }
         }
@@ -272,7 +275,7 @@ class WP2ETOS {
                 $links += count( $terms );
                 $hash = $this->source_hash( $terms );
                 if ( function_exists( 'as_enqueue_async_action' ) ) {
-                    as_enqueue_async_action( 'wp2etos_sync_product', array(
+                    as_enqueue_async_action( 'woo2etos_sync_product', array(
                         'product_id' => $pid,
                         'terms'      => $terms,
                         'hash'       => $hash,
@@ -313,16 +316,16 @@ class WP2ETOS {
         if ( ! $product || ! $this->opts['enabled'] ) return;
 
         $pid   = $product->get_id();
-        if ( get_transient( 'wp2etos_sync_lock_' . $pid ) ) return;
+        if ( get_transient( 'woo2etos_sync_lock_' . $pid ) ) return;
 
         $terms = $this->collect_size_terms_for_product( $pid );
         $hash  = $this->source_hash( $terms );
-        $old   = get_post_meta( $pid, WP2ETOS_AT_META_HASH, true );
+        $old   = get_post_meta( $pid, WOO2ETOS_AT_META_HASH, true );
         if ( $hash === $old ) return;
 
-        set_transient( 'wp2etos_sync_lock_' . $pid, 1, 60 );
+        set_transient( 'woo2etos_sync_lock_' . $pid, 1, 60 );
         if ( function_exists('as_enqueue_async_action') ){
-            as_enqueue_async_action( 'wp2etos_sync_product', array(
+            as_enqueue_async_action( 'woo2etos_sync_product', array(
                 'product_id' => $pid,
                 'terms'      => $terms,
                 'hash'       => $hash,
@@ -334,7 +337,7 @@ class WP2ETOS {
         if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
             if ( count( $terms ) <= 20 ) {
                 $msg = sprintf(
-                    '[WP2ETOS] product %d queued with terms: %s',
+                    '[Woo2Etos] product %d queued with terms: %s',
                     $pid,
                     implode( ', ', $terms )
                 );
@@ -356,12 +359,12 @@ class WP2ETOS {
 
         // Create missing terms in aggregator
         foreach( $terms as $name ){
-            if ( ! term_exists( $name, WP2ETOS_AT_TAX ) ){
-                wp_insert_term( $name, WP2ETOS_AT_TAX );
+            if ( ! term_exists( $name, WOO2ETOS_AT_TAX ) ){
+                wp_insert_term( $name, WOO2ETOS_AT_TAX );
             }
         }
         // Assign to product
-        wp_set_object_terms( $pid, $terms, WP2ETOS_AT_TAX, false );
+        wp_set_object_terms( $pid, $terms, WOO2ETOS_AT_TAX, false );
 
         // Ensure attribute exists on product (informational)
         $product = wc_get_product( $pid );
@@ -370,25 +373,25 @@ class WP2ETOS {
 
             // Build attribute object
             $aggreg = new WC_Product_Attribute();
-            $aggreg->set_id( wc_attribute_taxonomy_id_by_name( WP2ETOS_AT_TAX ) );
-            $aggreg->set_name( WP2ETOS_AT_TAX );
+            $aggreg->set_id( wc_attribute_taxonomy_id_by_name( WOO2ETOS_AT_TAX ) );
+            $aggreg->set_name( WOO2ETOS_AT_TAX );
             // map names to term IDs
             $term_ids = array();
             foreach( $terms as $name ){
-                $t = get_term_by( 'name', $name, WP2ETOS_AT_TAX );
+                $t = get_term_by( 'name', $name, WOO2ETOS_AT_TAX );
                 if ( $t ) $term_ids[] = intval($t->term_id);
             }
             $aggreg->set_options( $term_ids );
             $aggreg->set_visible( true );
             $aggreg->set_variation( false ); // NON di variazione, no impatto sulle varianti
 
-            $attrs[ WP2ETOS_AT_TAX ] = $aggreg;
+            $attrs[ WOO2ETOS_AT_TAX ] = $aggreg;
             $product->set_attributes( $attrs );
             $product->save();
         }
 
-        update_post_meta( $pid, WP2ETOS_AT_META_HASH, $hash );
-        delete_transient( 'wp2etos_sync_lock_' . $pid );
+        update_post_meta( $pid, WOO2ETOS_AT_META_HASH, $hash );
+        delete_transient( 'woo2etos_sync_lock_' . $pid );
 
         // Reattach hook
         add_action( 'woocommerce_after_product_object_save', array( $this, 'maybe_queue_sync' ), 10, 1 );
@@ -397,16 +400,16 @@ class WP2ETOS {
     /** Fallback scheduled task: sync recently modified products */
     public function sync_recent(){
         if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
-            error_log( '[WP2ETOS] cron 15min trigger' );
+            error_log( '[Woo2Etos] cron 15min trigger' );
         }
 
-        $last = (int) get_option( 'wp2etos_sync_recent_ts', 0 );
-        update_option( 'wp2etos_sync_recent_ts', time() );
+        $last = (int) get_option( 'woo2etos_sync_recent_ts', 0 );
+        update_option( 'woo2etos_sync_recent_ts', time() );
 
         $res = $this->collect_products_and_terms( false, $last );
         if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
             $msg = sprintf(
-                '[WP2ETOS] run queued: %d prodotti, %d nuovi termini, %d associazioni',
+                '[Woo2Etos] run queued: %d prodotti, %d nuovi termini, %d associazioni',
                 count( $res['products'] ),
                 count( $res['new_terms'] ),
                 $res['associations']
@@ -444,7 +447,7 @@ class WP2ETOS {
 
                 $is_size_like = ( false !== strpos( $aname, 'taglia' ) ) || ( false !== strpos( $label, 'taglia' ) ) || ( false !== strpos( $tax_name, 'taglia' ) );
                 if ( ! $is_size_like ) continue;
-                if ( $tax_name === WP2ETOS_AT_TAX ) continue; // exclude aggregator
+                if ( $tax_name === WOO2ETOS_AT_TAX ) continue; // exclude aggregator
 
                 $t = wp_get_object_terms( $product_id, $tax_name, array('fields'=>'names') );
                 if ( ! is_wp_error($t) && $t ){
@@ -463,7 +466,7 @@ class WP2ETOS {
                 foreach( $vattrs as $k => $val ){
                     $k_low = strtolower( $k );
                     if ( false === strpos( $k_low, 'taglia' ) ) continue;
-                    if ( $k_low === WP2ETOS_AT_TAX ) continue;
+                    if ( $k_low === WOO2ETOS_AT_TAX ) continue;
 
                     if ( is_array($val) ){
                         foreach( $val as $slug ){

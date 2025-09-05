@@ -396,6 +396,10 @@ class WP2ETOS {
 
     /** Fallback scheduled task: sync recently modified products */
     public function sync_recent(){
+        if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
+            error_log( '[WP2ETOS] cron 15min trigger' );
+        }
+
         $last = (int) get_option( 'wp2etos_sync_recent_ts', 0 );
         update_option( 'wp2etos_sync_recent_ts', time() );
 

@@ -260,6 +260,7 @@ class Woo2Etos {
                     }
                 }
             }
+
             $this->collect_products_and_terms( false, 0, 1 );
             wp_safe_redirect( add_query_arg( array( 'page' => WOO2ETOS_AT_SLUG, 'done' => '1' ), admin_url( 'admin.php' ) ) );
             exit;
@@ -388,6 +389,7 @@ class Woo2Etos {
                 if ( $final ) {
                     error_log( sprintf( '[Woo2Etos] run queued: %d prodotti, %d nuovi termini, %d associazioni', $final['products'], $final['new_terms'], $final['links'] ) );
                 }
+
             }
         }
 

@@ -387,6 +387,17 @@ class Woo2Etos {
             if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
                 error_log( sprintf( '[Woo2Etos] run queued: %d prodotti, %d nuovi termini, %d associazioni', $final['products'], $final['new_terms'], $final['links'] ) );
             }
+            if ( class_exists( 'WC_Admin_Notices' ) ) {
+                $message = sprintf(
+                    'Sincronizzazione completata: %d prodotti, %d nuovi termini, %d associazioni.',
+                    $final['products'],
+                    $final['new_terms'],
+                    $final['links']
+                );
+                WC_Admin_Notices::remove_notice( 'woo2etos_run_success' );
+                WC_Admin_Notices::add_custom_notice( 'woo2etos_run_success', $message );
+                WC_Admin_Notices::save_notices();
+            }
         }
 
         return $res;

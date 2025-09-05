@@ -253,14 +253,14 @@ class Woo2Etos {
                 );
                 WC_Admin_Notices::remove_notice( 'woo2etos_run_start' );
                 WC_Admin_Notices::add_custom_notice( 'woo2etos_run_start', $message );
-                WC_Admin_Notices::save_notices();
+                foreach ( array( 'save_notices', 'save_admin_notices', 'save' ) as $m ) {
+                    if ( method_exists( 'WC_Admin_Notices', $m ) ) {
+                        call_user_func( array( 'WC_Admin_Notices', $m ) );
+                        break;
+                    }
+                }
             }
-            delete_option( 'woo2etos_run_summary' );
-            update_option( 'woo2etos_run_summary', array(
-                'products' => 0,
-                'new_terms' => array(),
-                'links' => 0,
-            ) );
+
             $this->collect_products_and_terms( false, 0, 1 );
             wp_safe_redirect( add_query_arg( array( 'page' => WOO2ETOS_AT_SLUG, 'done' => '1' ), admin_url( 'admin.php' ) ) );
             exit;
@@ -380,25 +380,16 @@ class Woo2Etos {
         }
 
         $res = $this->collect_products_page( $page, false, $since );
-
-        $summary = get_option( 'woo2etos_run_summary', array(
-            'products' => 0,
-            'new_terms' => array(),
-            'links' => 0,
-        ) );
-        $summary['products'] += count( $res['products'] );
-        foreach ( $res['new_terms'] as $t => $_ ) {
-            $summary['new_terms'][ $t ] = true;
-        }
-        $summary['links'] += $res['associations'];
-        update_option( 'woo2etos_run_summary', $summary );
-
         if ( $res['has_more'] && function_exists( 'as_enqueue_async_action' ) ) {
             as_enqueue_async_action( 'woo2etos_collect_products', array( false, $since, $page + 1 ) );
         } else {
             delete_option( 'woo2etos_run_summary' );
             if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
-                error_log( sprintf( '[Woo2Etos] run queued: %d prodotti, %d nuovi termini, %d associazioni', $summary['products'], count( $summary['new_terms'] ), $summary['links'] ) );
+                $final = get_option( 'woo2etos_run_final', array() );
+                if ( $final ) {
+                    error_log( sprintf( '[Woo2Etos] run queued: %d prodotti, %d nuovi termini, %d associazioni', $final['products'], $final['new_terms'], $final['links'] ) );
+                }
+
             }
         }
 

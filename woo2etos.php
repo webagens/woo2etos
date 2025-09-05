@@ -41,8 +41,18 @@ add_action( 'plugins_loaded', function(){
 });
 
 // No automatic actions on activation: safety-first
+function woo2etos_deactivate() {
+    if ( function_exists( 'as_unschedule_all_actions' ) ) {
+        as_unschedule_all_actions( 'woo2etos_sync_recent' );
+        as_unschedule_all_actions( 'woo2etos_collect_products' );
+        as_unschedule_all_actions( 'woo2etos_sync_product' );
+    }
+}
+register_deactivation_hook( __FILE__, 'woo2etos_deactivate' );
+
 function woo2etos_uninstall_cleanup() {
     // cleanup only options/transients, not taxonomy terms
+    woo2etos_deactivate();
     delete_option( WOO2ETOS_AT_OPTION );
 }
 register_uninstall_hook( __FILE__, 'woo2etos_uninstall_cleanup' );

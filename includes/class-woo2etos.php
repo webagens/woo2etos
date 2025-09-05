@@ -86,6 +86,12 @@ class Woo2Etos {
             }
         }
 
+        // Flush empty terms
+        if ( isset( $_POST['flush_empty'] ) && check_admin_referer( 'woo2etos_at_flush', 'woo2etos_nonce4' ) ){
+            $removed = $this->flush_empty_terms();
+            echo '<div class="notice notice-success"><p>Rimossi ' . intval( $removed ) . ' termini vuoti.</p></div>';
+        }
+
         // Retrieve run result from transient if available
         $run_result = get_transient( 'woo2etos_at_run' );
         delete_transient( 'woo2etos_at_run' );
@@ -133,6 +139,11 @@ class Woo2Etos {
             <form method="post" style="display:inline-block;margin-right:10px;">
                 <?php wp_nonce_field( 'woo2etos_at_attr', 'woo2etos_nonce2' ); ?>
                 <button class="button" name="ensure_attr" value="1">Verifica / Crea attributo “Taglia" (<?php echo esc_html(WOO2ETOS_AT_TAX_SLUG); ?>)</button>
+            </form>
+
+            <form method="post" style="display:inline-block;margin-right:10px;">
+                <?php wp_nonce_field( 'woo2etos_at_flush', 'woo2etos_nonce4' ); ?>
+                <button class="button" name="flush_empty" value="1">Rimuovi termini vuoti</button>
             </form>
 
             <form method="post" action="<?php echo esc_url( admin_url('admin-post.php') ); ?>" style="display:inline-block;">
@@ -191,6 +202,28 @@ class Woo2Etos {
             }
         }
         return true;
+    }
+
+    /** Remove empty terms from aggregated taxonomy */
+    public function flush_empty_terms(){
+        $removed = 0;
+        $terms = get_terms( array(
+            'taxonomy'   => WOO2ETOS_AT_TAX,
+            'hide_empty' => false,
+        ) );
+        if ( is_wp_error( $terms ) ) {
+            return 0;
+        }
+        foreach ( $terms as $term ) {
+            if ( intval( $term->count ) !== 0 ) {
+                continue;
+            }
+            $res = wp_delete_term( $term->term_id, WOO2ETOS_AT_TAX );
+            if ( ! is_wp_error( $res ) ) {
+                $removed++;
+            }
+        }
+        return $removed;
     }
 
     /** Handle dry-run or run via admin-post */

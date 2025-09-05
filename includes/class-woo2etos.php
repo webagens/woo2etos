@@ -266,65 +266,66 @@ class Woo2Etos {
         $batch = max( 10, intval( $this->opts['batch_size'] ) );
 
         $args = array(
-            'status' => array( 'publish', 'private' ),
-            'limit'  => -1,
-            'return' => 'ids',
+            'status'   => array( 'publish', 'private' ),
+            'limit'    => $batch,
+            'paginate' => true,
+            'return'   => 'ids',
         );
-        $all_ids = wc_get_products( $args );
+        if ( $since > 0 ) {
+            $args['date_query'] = array(
+                array(
+                    'column' => 'post_modified_gmt',
+                    'after'  => gmdate( 'Y-m-d H:i:s', $since ),
+                ),
+            );
+        }
+
+        $page = 1;
         $products = array();
-        $product_terms = array();
         $links = 0;
         $all_terms = array();
 
-        foreach ( $all_ids as $pid ) {
-            if ( $since ) {
-                $modified = get_post_modified_time( 'U', true, $pid );
-                if ( ! $modified || $modified <= $since ) {
+        do {
+            $args['page'] = $page;
+            $result       = wc_get_products( $args );
+            $ids          = $result->products ?? array();
+
+            if ( empty( $ids ) ) {
+                break;
+            }
+
+            foreach ( $ids as $pid ) {
+                $terms = $this->collect_size_terms_for_product( $pid );
+                if ( empty( $terms ) ) {
                     continue;
                 }
+                $products[] = $pid;
+                foreach ( $terms as $t ) {
+                    $all_terms[ $t ] = true;
+                }
+                $links += count( $terms );
+
+                if ( ! $dry ) {
+                    $hash = $this->source_hash( $terms );
+                    if ( function_exists( 'as_enqueue_async_action' ) ) {
+                        as_enqueue_async_action( 'woo2etos_sync_product', array(
+                            'product_id' => $pid,
+                            'terms'      => $terms,
+                            'hash'       => $hash,
+                        ) );
+                    } else {
+                        $this->worker_sync_product( $pid, $terms, $hash );
+                    }
+                }
             }
-            $terms = $this->collect_size_terms_for_product( $pid );
-            if ( empty( $terms ) ) {
-                continue;
-            }
-            $products[] = $pid;
-            $product_terms[ $pid ] = $terms;
-            foreach ( $terms as $t ) {
-                $all_terms[ $t ] = true;
-            }
-        }
+
+            $page++;
+        } while ( true );
 
         $new_terms = array();
         foreach ( array_keys( $all_terms ) as $name ) {
             if ( ! term_exists( $name, WOO2ETOS_AT_TAX ) ) {
                 $new_terms[ $name ] = true;
-            }
-        }
-
-        if ( ! $dry ) {
-            $count = 0;
-            foreach ( $products as $pid ) {
-                $terms = $product_terms[ $pid ];
-                $links += count( $terms );
-                $hash = $this->source_hash( $terms );
-                if ( function_exists( 'as_enqueue_async_action' ) ) {
-                    as_enqueue_async_action( 'woo2etos_sync_product', array(
-                        'product_id' => $pid,
-                        'terms'      => $terms,
-                        'hash'       => $hash,
-                    ) );
-                } else {
-                    $this->worker_sync_product( $pid, $terms, $hash );
-                }
-                $count++;
-                if ( $count % $batch == 0 ) {
-                    // small pause to be gentle
-                }
-            }
-        } else {
-            foreach ( $products as $pid ) {
-                $terms = $product_terms[ $pid ];
-                $links += count( $terms );
             }
         }
 

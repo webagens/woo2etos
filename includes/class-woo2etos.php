@@ -338,7 +338,7 @@ class Woo2Etos {
     }
 
     /** Find products and for each compute terms; optionally schedule jobs */
-    private function collect_products_and_terms( $dry = true, $since = 0, $page = 1 ){
+    public function collect_products_and_terms( $dry = true, $since = 0, $page = 1 ){
         if ( $dry ) {
             $products = array();
             $all_terms = array();

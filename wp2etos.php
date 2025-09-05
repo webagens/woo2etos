@@ -12,6 +12,13 @@
 
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
+if ( ! defined( 'WP_DEBUG' ) ) {
+    define( 'WP_DEBUG', true );
+}
+if ( ! defined( 'WP_DEBUG_LOG' ) ) {
+    define( 'WP_DEBUG_LOG', true );
+}
+
 define( 'WP2ETOS_AT_VERSION', '1.0.0' );
 define( 'WP2ETOS_AT_SLUG', 'wp2etos' );
 define( 'WP2ETOS_AT_OPTION', 'wp2etos_at_options' );

@@ -199,16 +199,26 @@ class WP2ETOS {
         $this->ensure_attribute();
 
         if ( $do_run ){
-            $res = $this->collect_products_and_terms(false); // will schedule
-            set_transient( 'wp2etos_at_run', $res, 60 );
-            error_log( sprintf( '[WP2ETOS] run queued: %d prodotti, %d nuovi termini, %d associazioni', intval($res['products']), intval($res['new_terms']), intval($res['links']) ) );
+            $res = $this->collect_products_and_terms( false );
+            $summary = array(
+                'products'  => count( $res['products'] ),
+                'new_terms' => count( $res['new_terms'] ),
+                'links'     => $res['associations'],
+            );
+            set_transient( 'wp2etos_at_run', $summary, 60 );
+            error_log( sprintf( '[WP2ETOS] run queued: %d prodotti, %d nuovi termini, %d associazioni', $summary['products'], $summary['new_terms'], $summary['links'] ) );
             wp_safe_redirect( add_query_arg( array('page'=>WP2ETOS_AT_SLUG, 'done'=>'1'), admin_url('admin.php') ) );
             exit;
         } else {
-            $res = $this->collect_products_and_terms(true);
+            $res = $this->collect_products_and_terms( true );
+            $summary = array(
+                'products'  => count( $res['products'] ),
+                'new_terms' => count( $res['new_terms'] ),
+                'links'     => $res['associations'],
+            );
             // render on the same page by reloading POST on render_page
             // We'll store a transient with the last dry-run summary for display
-            set_transient('wp2etos_at_dryrun', $res, 60 );
+            set_transient( 'wp2etos_at_dryrun', $summary, 60 );
             // Redirect back to page to show results
             wp_safe_redirect( admin_url( 'admin.php?page=' . WP2ETOS_AT_SLUG ) );
             exit;
@@ -216,68 +226,76 @@ class WP2ETOS {
     }
 
     /** Find products and for each compute terms; optionally schedule jobs */
-    private function collect_products_and_terms( $dry = true ){
-        $batch = max(10, intval($this->opts['batch_size']) );
+    private function collect_products_and_terms( $dry = true, $since = 0 ){
+        $batch = max( 10, intval( $this->opts['batch_size'] ) );
 
         $args = array(
-            'status' => array('publish','private'),
+            'status' => array( 'publish', 'private' ),
             'limit'  => -1,
             'return' => 'ids',
         );
-        $products = wc_get_products( $args );
-        $created_terms = 0;
+        $all_ids = wc_get_products( $args );
+        $products = array();
+        $product_terms = array();
         $links = 0;
-
         $all_terms = array();
 
-        foreach( $products as $pid ){
+        foreach ( $all_ids as $pid ) {
+            if ( $since ) {
+                $modified = get_post_modified_time( 'U', true, $pid );
+                if ( ! $modified || $modified <= $since ) {
+                    continue;
+                }
+            }
             $terms = $this->collect_size_terms_for_product( $pid );
-            if ( empty($terms) ) continue;
-            foreach( $terms as $t ){ $all_terms[ $t ] = true; }
-        }
-        // Count new terms (not existing in aggregator)
-        foreach( array_keys($all_terms) as $name ){
-            if ( ! term_exists( $name, WP2ETOS_AT_TAX ) ){
-                $created_terms++;
+            if ( empty( $terms ) ) {
+                continue;
+            }
+            $products[] = $pid;
+            $product_terms[ $pid ] = $terms;
+            foreach ( $terms as $t ) {
+                $all_terms[ $t ] = true;
             }
         }
 
-        if ( ! $dry ){
-            // schedule per-product job in chunks
+        $new_terms = array();
+        foreach ( array_keys( $all_terms ) as $name ) {
+            if ( ! term_exists( $name, WP2ETOS_AT_TAX ) ) {
+                $new_terms[ $name ] = true;
+            }
+        }
+
+        if ( ! $dry ) {
             $count = 0;
-            foreach( $products as $pid ){
-                $terms = $this->collect_size_terms_for_product( $pid );
-                if ( empty($terms) ) continue;
-                $links += count($terms);
-                $hash  = $this->source_hash( $terms );
-                if ( function_exists('as_enqueue_async_action') ){
+            foreach ( $products as $pid ) {
+                $terms = $product_terms[ $pid ];
+                $links += count( $terms );
+                $hash = $this->source_hash( $terms );
+                if ( function_exists( 'as_enqueue_async_action' ) ) {
                     as_enqueue_async_action( 'wp2etos_sync_product', array(
                         'product_id' => $pid,
                         'terms'      => $terms,
                         'hash'       => $hash,
-                    ));
+                    ) );
                 } else {
-                    // fallback: do immediate (still safe)
                     $this->worker_sync_product( $pid, $terms, $hash );
                 }
                 $count++;
-                if ( $count % $batch == 0 ){
-                    // small pause to be gentle (no real sleep in web)
+                if ( $count % $batch == 0 ) {
+                    // small pause to be gentle
                 }
             }
         } else {
-            // For dry-run estimate links count
-            foreach( $products as $pid ){
-                $terms = $this->collect_size_terms_for_product( $pid );
-                if ( empty($terms) ) continue;
-                $links += count($terms);
+            foreach ( $products as $pid ) {
+                $terms = $product_terms[ $pid ];
+                $links += count( $terms );
             }
         }
 
         return array(
-            'products'  => count($products),
-            'new_terms' => $created_terms,
-            'links'     => $links,
+            'products'     => $products,
+            'new_terms'    => $new_terms,
+            'associations' => $links,
         );
     }
 
@@ -378,21 +396,23 @@ class WP2ETOS {
 
     /** Fallback scheduled task: sync recently modified products */
     public function sync_recent(){
-        $since = (int) get_option( 'wp2etos_sync_recent_ts', 0 );
-        $now   = time();
-        update_option( 'wp2etos_sync_recent_ts', $now );
+        $last = (int) get_option( 'wp2etos_sync_recent_ts', 0 );
+        update_option( 'wp2etos_sync_recent_ts', time() );
 
-        $args = array(
-            'status' => array('publish','private'),
-            'limit'  => -1,
-            'return' => 'ids',
-        );
-        $ids = wc_get_products( $args );
-        foreach( $ids as $pid ){
-            $modified = get_post_modified_time( 'U', true, $pid );
-            if ( $modified && $modified > $since ){
-                $this->maybe_queue_sync( $pid );
+        $res = $this->collect_products_and_terms( false, $last );
+        if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
+            $msg = sprintf(
+                '[WP2ETOS] run queued: %d prodotti, %d nuovi termini, %d associazioni',
+                count( $res['products'] ),
+                count( $res['new_terms'] ),
+                $res['associations']
+            );
+            // Dettagli aggiuntivi se pochi elementi
+            if ( count( $res['products'] ) <= 20 ) {
+                $msg .= ' | prodotti: ' . implode( ', ', $res['products'] );
+                $msg .= ' | termini: ' . implode( ', ', array_keys( $res['new_terms'] ) );
             }
+            error_log( $msg );
         }
     }
 

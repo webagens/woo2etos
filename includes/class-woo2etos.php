@@ -288,7 +288,7 @@ class Woo2Etos {
         do {
             $args['page'] = $page;
             $result       = wc_get_products( $args );
-            $ids          = $result['products'] ?? array();
+            $ids          = $result->products ?? array();
 
             if ( empty( $ids ) ) {
                 break;

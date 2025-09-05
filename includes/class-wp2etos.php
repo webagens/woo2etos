@@ -34,19 +34,20 @@ class WP2ETOS {
             add_action( 'woocommerce_rest_insert_product', array( $this, 'rest_inserted' ), 10, 3 );
             add_action( 'woocommerce_product_import_inserted_product_object', array( $this, 'import_inserted' ), 10, 2 );
         }
-
-        // Cron / Action Scheduler fallback
-        if ( $this->opts['enabled'] && $this->opts['cron_15'] ){
-            if ( function_exists( 'as_next_scheduled_action' ) && false === as_next_scheduled_action( 'wp2etos_sync_recent' ) ){
-                if ( function_exists( 'as_schedule_recurring_action' ) ){
-                    as_schedule_recurring_action( time() + 60, 900, 'wp2etos_sync_recent' );
-                }
-            }
-            add_action( 'wp2etos_sync_recent', array( $this, 'sync_recent' ) );
-        }
+        add_action( 'init', array( $this, 'register_recurring_sync' ) );
 
         // Worker
         add_action( 'wp2etos_sync_product', array( $this, 'worker_sync_product' ), 10, 3 );
+    }
+
+    public function register_recurring_sync() {
+        if ( $this->opts['enabled'] && $this->opts['cron_15'] 
+             && function_exists( 'as_schedule_recurring_action' ) ) {
+            if ( false === as_next_scheduled_action( 'wp2etos_sync_recent' ) ) {
+                as_schedule_recurring_action( time() + 60, 900, 'wp2etos_sync_recent' );
+            }
+            add_action( 'wp2etos_sync_recent', array( $this, 'sync_recent' ) );
+        }
     }
 
     /** Admin page */

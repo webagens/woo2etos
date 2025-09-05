@@ -382,7 +382,7 @@ class Woo2Etos {
                 if ( $t ) $term_ids[] = intval($t->term_id);
             }
             $aggreg->set_options( $term_ids );
-            $aggreg->set_visible( true );
+            $aggreg->set_visible( false );
             $aggreg->set_variation( false ); // NON di variazione, no impatto sulle varianti
 
             $attrs[ WOO2ETOS_AT_TAX ] = $aggreg;

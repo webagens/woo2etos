@@ -39,7 +39,6 @@ class Woo2Etos {
         // Worker
         add_action( 'woo2etos_sync_product', array( $this, 'worker_sync_product' ), 10, 3 );
         add_action( 'woo2etos_collect_products', array( $this, 'collect_products_and_terms' ), 10, 3 );
-        add_action( 'woo2etos_run_summary', array( $this, 'run_summary' ) );
     }
 
     public function register_recurring_sync() {
@@ -255,21 +254,17 @@ class Woo2Etos {
             // Fallback notice for the initiating page
             set_transient( 'woo2etos_run_notice', 'Scansione avviata…', 60 );
 
-            if ( function_exists( 'as_enqueue_async_action' ) ) {
-                as_enqueue_async_action( 'woo2etos_run_summary' );
-            } else {
-                $this->run_summary();
-            }
+            $this->ensure_attribute();
+            update_option( 'woo2etos_run_final', array( 'products' => 0, 'new_terms' => 0, 'links' => 0 ) );
+            delete_option( 'woo2etos_run_terms' );
+            update_option( 'woo2etos_run_pending', 0 );
+
+            $this->collect_products_and_terms( false, 0, 1 );
 
             wp_safe_redirect( admin_url( 'admin.php?page=' . WOO2ETOS_AT_SLUG ) );
             exit;
         } else {
-            $res = $this->collect_products_and_terms( true, 0, 1 );
-            $summary = array(
-                'products'  => count( $res['products'] ),
-                'new_terms' => count( $res['new_terms'] ),
-                'links'     => $res['associations'],
-            );
+            $summary = $this->collect_products_and_terms( true, 0, 1 );
             // render on the same page by reloading POST on render_page
             // We'll store a transient with the last dry-run summary for display
             set_transient( 'woo2etos_at_dryrun', $summary, 60 );
@@ -277,38 +272,6 @@ class Woo2Etos {
             wp_safe_redirect( admin_url( 'admin.php?page=' . WOO2ETOS_AT_SLUG ) );
             exit;
         }
-    }
-
-    /** Compute summary then kick off full sync */
-    public function run_summary(){
-        $this->ensure_attribute();
-
-        $summary = $this->collect_products_and_terms( true, 0, 1 );
-        $final = array(
-            'products'  => count( $summary['products'] ),
-            'new_terms' => count( $summary['new_terms'] ),
-            'links'     => $summary['associations'],
-        );
-        update_option( 'woo2etos_run_final', $final );
-        update_option( 'woo2etos_run_pending', $final['products'] );
-        if ( class_exists( 'WC_Admin_Notices' ) ) {
-            $message = sprintf(
-                'Woo2Etos: Sincronizzazione iniziata: %d prodotti, %d nuovi termini, %d associazioni.',
-                $final['products'],
-                $final['new_terms'],
-                $final['links']
-            );
-            WC_Admin_Notices::remove_notice( 'woo2etos_run_start' );
-            WC_Admin_Notices::add_custom_notice( 'woo2etos_run_start', $message );
-            foreach ( array( 'save_notices', 'save_admin_notices', 'save' ) as $m ) {
-                if ( method_exists( 'WC_Admin_Notices', $m ) ) {
-                    call_user_func( array( 'WC_Admin_Notices', $m ) );
-                    break;
-                }
-            }
-        }
-
-        $this->collect_products_and_terms( false, 0, 1 );
     }
 
     /** Process a single page of products */
@@ -334,14 +297,15 @@ class Woo2Etos {
         $result = wc_get_products( $args );
         $ids    = $result->products ?? array();
 
-        $products = array();
-        $links    = 0;
-        $all_terms = array();
+        $links = 0;
+        $count_products = 0;
+        $count_new_terms = 0;
+        $seen = array();
 
         if ( empty( $ids ) ) {
             return array(
-                'products'     => array(),
-                'new_terms'    => array(),
+                'products'     => 0,
+                'new_terms'    => 0,
                 'associations' => 0,
                 'has_more'     => false,
             );
@@ -352,13 +316,36 @@ class Woo2Etos {
             if ( empty( $terms ) ) {
                 continue;
             }
-            $products[] = $pid;
-            foreach ( $terms as $t ) {
-                $all_terms[ $t ] = true;
-            }
+
+            $count_products++;
             $links += count( $terms );
 
-            if ( ! $dry ) {
+            if ( $dry ) {
+                foreach ( $terms as $t ) {
+                    if ( ! term_exists( $t, WOO2ETOS_AT_TAX ) && ! isset( $seen[ $t ] ) ) {
+                        $seen[ $t ] = true;
+                        $count_new_terms++;
+                    }
+                }
+            } else {
+                if ( $since == 0 ) {
+                    $pending = (int) get_option( 'woo2etos_run_pending', 0 );
+                    update_option( 'woo2etos_run_pending', $pending + 1 );
+
+                    $final = get_option( 'woo2etos_run_final', array( 'products' => 0, 'new_terms' => 0, 'links' => 0 ) );
+                    $final['products']++;
+                    $final['links'] += count( $terms );
+                    $terms_seen = get_option( 'woo2etos_run_terms', array() );
+                    foreach ( $terms as $t ) {
+                        if ( ! term_exists( $t, WOO2ETOS_AT_TAX ) && ! isset( $terms_seen[ $t ] ) ) {
+                            $terms_seen[ $t ] = true;
+                            $final['new_terms']++;
+                        }
+                    }
+                    update_option( 'woo2etos_run_final', $final );
+                    update_option( 'woo2etos_run_terms', $terms_seen );
+                }
+
                 $hash = $this->source_hash( $terms );
                 if ( function_exists( 'as_enqueue_async_action' ) ) {
                     as_enqueue_async_action( 'woo2etos_sync_product', array(
@@ -372,49 +359,44 @@ class Woo2Etos {
             }
         }
 
-        $new_terms = array();
-        foreach ( array_keys( $all_terms ) as $name ) {
-            if ( ! term_exists( $name, WOO2ETOS_AT_TAX ) ) {
-                $new_terms[ $name ] = true;
-            }
-        }
-
-        return array(
-            'products'     => $products,
-            'new_terms'    => $new_terms,
+        $ret = array(
+            'products'     => $count_products,
+            'new_terms'    => $count_new_terms,
             'associations' => $links,
             'has_more'     => ! empty( $ids ),
         );
+        if ( $dry ) {
+            $ret['terms'] = $seen;
+        }
+        return $ret;
     }
 
     /** Find products and for each compute terms; optionally schedule jobs */
     public function collect_products_and_terms( $dry = true, $since = 0, $page = 1 ){
         if ( $dry ) {
-            $products = array();
-            $all_terms = array();
-            $links = 0;
+            $summary = array( 'products' => 0, 'new_terms' => 0, 'links' => 0 );
+            $seen_terms = array();
             do {
                 $res = $this->collect_products_page( $page, true, $since );
-                $products = array_merge( $products, $res['products'] );
-                foreach ( $res['new_terms'] as $t => $_ ) {
-                    $all_terms[ $t ] = true;
+                $summary['products']  += $res['products'];
+                $summary['links']     += $res['associations'];
+                foreach ( $res['terms'] as $t => $_ ) {
+                    if ( ! isset( $seen_terms[ $t ] ) ) {
+                        $seen_terms[ $t ] = true;
+                        $summary['new_terms']++;
+                    }
                 }
-                $links += $res['associations'];
                 $page++;
             } while ( $res['has_more'] );
 
-            return array(
-                'products'     => $products,
-                'new_terms'    => $all_terms,
-                'associations' => $links,
-            );
+            return $summary;
         }
 
         $res = $this->collect_products_page( $page, false, $since );
         if ( $res['has_more'] && function_exists( 'as_enqueue_async_action' ) ) {
             as_enqueue_async_action( 'woo2etos_collect_products', array( false, $since, $page + 1 ) );
         } else {
-            delete_option( 'woo2etos_run_summary' );
+            delete_option( 'woo2etos_run_terms' );
             if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
                 $final = get_option( 'woo2etos_run_final', array() );
                 if ( $final ) {

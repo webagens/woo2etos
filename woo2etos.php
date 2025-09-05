@@ -4,6 +4,7 @@
  * Description: Aggrega più attributi "TAGLIA" in un unico "Taglia" (slug: taglia-wc) e li collega ai prodotti.
  * Version: 1.0.0
  * Author: Simone Cansella
+ * Author URI: https://simone.cansella.it
  * Requires at least: 6.0
  * Requires PHP: 7.4
  * License: GPLv2 or later

@@ -38,6 +38,7 @@ class Woo2Etos {
 
         // Worker
         add_action( 'woo2etos_sync_product', array( $this, 'worker_sync_product' ), 10, 3 );
+        add_action( 'woo2etos_collect_products', array( $this, 'collect_products_and_terms' ), 10, 3 );
     }
 
     public function register_recurring_sync() {
@@ -96,7 +97,7 @@ class Woo2Etos {
         $run_result = get_transient( 'woo2etos_at_run' );
         delete_transient( 'woo2etos_at_run' );
         if ( $run_result ){
-            echo '<div class="notice notice-success"><p>Sincronizzazione avviata: ' . intval( $run_result['products'] ) . ' prodotti messi in coda.</p></div>';
+            echo '<div class="notice notice-success"><p>Sincronizzazione completata: ' . intval( $run_result['products'] ) . ' prodotti, ' . intval( $run_result['new_terms'] ) . ' nuovi termini, ' . intval( $run_result['links'] ) . ' associazioni.</p></div>';
         }
 
         // Retrieve dry-run result from transient if available
@@ -235,18 +236,17 @@ class Woo2Etos {
         $this->ensure_attribute();
 
         if ( $do_run ){
-            $res = $this->collect_products_and_terms( false );
-            $summary = array(
-                'products'  => count( $res['products'] ),
-                'new_terms' => count( $res['new_terms'] ),
-                'links'     => $res['associations'],
-            );
-            set_transient( 'woo2etos_at_run', $summary, 60 );
-            error_log( sprintf( '[Woo2Etos] run queued: %d prodotti, %d nuovi termini, %d associazioni', $summary['products'], $summary['new_terms'], $summary['links'] ) );
-            wp_safe_redirect( add_query_arg( array('page'=>WOO2ETOS_AT_SLUG, 'done'=>'1'), admin_url('admin.php') ) );
+            delete_option( 'woo2etos_run_summary' );
+            update_option( 'woo2etos_run_summary', array(
+                'products' => 0,
+                'new_terms' => array(),
+                'links' => 0,
+            ) );
+            $this->collect_products_and_terms( false, 0, 1 );
+            wp_safe_redirect( add_query_arg( array( 'page' => WOO2ETOS_AT_SLUG, 'done' => '1' ), admin_url( 'admin.php' ) ) );
             exit;
         } else {
-            $res = $this->collect_products_and_terms( true );
+            $res = $this->collect_products_and_terms( true, 0, 1 );
             $summary = array(
                 'products'  => count( $res['products'] ),
                 'new_terms' => count( $res['new_terms'] ),
@@ -261,8 +261,8 @@ class Woo2Etos {
         }
     }
 
-    /** Find products and for each compute terms; optionally schedule jobs */
-    private function collect_products_and_terms( $dry = true, $since = 0 ){
+    /** Process a single page of products */
+    private function collect_products_page( $page = 1, $dry = true, $since = 0 ){
         $batch = max( 10, intval( $this->opts['batch_size'] ) );
 
         $args = array(
@@ -270,6 +270,7 @@ class Woo2Etos {
             'limit'    => $batch,
             'paginate' => true,
             'return'   => 'ids',
+            'page'     => $page,
         );
         if ( $since > 0 ) {
             $args['date_query'] = array(
@@ -280,47 +281,46 @@ class Woo2Etos {
             );
         }
 
-        $page = 1;
+        $result = wc_get_products( $args );
+        $ids    = $result->products ?? array();
+
         $products = array();
-        $links = 0;
+        $links    = 0;
         $all_terms = array();
 
-        do {
-            $args['page'] = $page;
-            $result       = wc_get_products( $args );
-            $ids          = $result->products ?? array();
+        if ( empty( $ids ) ) {
+            return array(
+                'products'     => array(),
+                'new_terms'    => array(),
+                'associations' => 0,
+                'has_more'     => false,
+            );
+        }
 
-            if ( empty( $ids ) ) {
-                break;
+        foreach ( $ids as $pid ) {
+            $terms = $this->collect_size_terms_for_product( $pid );
+            if ( empty( $terms ) ) {
+                continue;
             }
+            $products[] = $pid;
+            foreach ( $terms as $t ) {
+                $all_terms[ $t ] = true;
+            }
+            $links += count( $terms );
 
-            foreach ( $ids as $pid ) {
-                $terms = $this->collect_size_terms_for_product( $pid );
-                if ( empty( $terms ) ) {
-                    continue;
-                }
-                $products[] = $pid;
-                foreach ( $terms as $t ) {
-                    $all_terms[ $t ] = true;
-                }
-                $links += count( $terms );
-
-                if ( ! $dry ) {
-                    $hash = $this->source_hash( $terms );
-                    if ( function_exists( 'as_enqueue_async_action' ) ) {
-                        as_enqueue_async_action( 'woo2etos_sync_product', array(
-                            'product_id' => $pid,
-                            'terms'      => $terms,
-                            'hash'       => $hash,
-                        ) );
-                    } else {
-                        $this->worker_sync_product( $pid, $terms, $hash );
-                    }
+            if ( ! $dry ) {
+                $hash = $this->source_hash( $terms );
+                if ( function_exists( 'as_enqueue_async_action' ) ) {
+                    as_enqueue_async_action( 'woo2etos_sync_product', array(
+                        'product_id' => $pid,
+                        'terms'      => $terms,
+                        'hash'       => $hash,
+                    ) );
+                } else {
+                    $this->worker_sync_product( $pid, $terms, $hash );
                 }
             }
-
-            $page++;
-        } while ( true );
+        }
 
         $new_terms = array();
         foreach ( array_keys( $all_terms ) as $name ) {
@@ -333,7 +333,63 @@ class Woo2Etos {
             'products'     => $products,
             'new_terms'    => $new_terms,
             'associations' => $links,
+            'has_more'     => ! empty( $ids ),
         );
+    }
+
+    /** Find products and for each compute terms; optionally schedule jobs */
+    private function collect_products_and_terms( $dry = true, $since = 0, $page = 1 ){
+        if ( $dry ) {
+            $products = array();
+            $all_terms = array();
+            $links = 0;
+            do {
+                $res = $this->collect_products_page( $page, true, $since );
+                $products = array_merge( $products, $res['products'] );
+                foreach ( $res['new_terms'] as $t => $_ ) {
+                    $all_terms[ $t ] = true;
+                }
+                $links += $res['associations'];
+                $page++;
+            } while ( $res['has_more'] );
+
+            return array(
+                'products'     => $products,
+                'new_terms'    => $all_terms,
+                'associations' => $links,
+            );
+        }
+
+        $res = $this->collect_products_page( $page, false, $since );
+
+        $summary = get_option( 'woo2etos_run_summary', array(
+            'products' => 0,
+            'new_terms' => array(),
+            'links' => 0,
+        ) );
+        $summary['products'] += count( $res['products'] );
+        foreach ( $res['new_terms'] as $t => $_ ) {
+            $summary['new_terms'][ $t ] = true;
+        }
+        $summary['links'] += $res['associations'];
+        update_option( 'woo2etos_run_summary', $summary );
+
+        if ( $res['has_more'] && function_exists( 'as_enqueue_async_action' ) ) {
+            as_enqueue_async_action( 'woo2etos_collect_products', array( false, $since, $page + 1 ) );
+        } else {
+            $final = array(
+                'products'  => $summary['products'],
+                'new_terms' => count( $summary['new_terms'] ),
+                'links'     => $summary['links'],
+            );
+            set_transient( 'woo2etos_at_run', $final, 60 );
+            delete_option( 'woo2etos_run_summary' );
+            if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
+                error_log( sprintf( '[Woo2Etos] run queued: %d prodotti, %d nuovi termini, %d associazioni', $final['products'], $final['new_terms'], $final['links'] ) );
+            }
+        }
+
+        return $res;
     }
 
     /** Hook wrappers */
@@ -440,21 +496,7 @@ class Woo2Etos {
         $last = (int) get_option( 'woo2etos_sync_recent_ts', 0 );
         update_option( 'woo2etos_sync_recent_ts', time() );
 
-        $res = $this->collect_products_and_terms( false, $last );
-        if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
-            $msg = sprintf(
-                '[Woo2Etos] run queued: %d prodotti, %d nuovi termini, %d associazioni',
-                count( $res['products'] ),
-                count( $res['new_terms'] ),
-                $res['associations']
-            );
-            // Dettagli aggiuntivi se pochi elementi
-            if ( count( $res['products'] ) <= 20 ) {
-                $msg .= ' | prodotti: ' . implode( ', ', $res['products'] );
-                $msg .= ' | termini: ' . implode( ', ', array_keys( $res['new_terms'] ) );
-            }
-            error_log( $msg );
-        }
+        $this->collect_products_and_terms( false, $last, 1 );
     }
 
     /** Build diff hash from source size-like attributes (excluding aggregator) */

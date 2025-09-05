@@ -312,6 +312,17 @@ class WP2ETOS {
         } else {
             $this->worker_sync_product( $pid, $terms, $hash );
         }
+
+        if ( defined( 'WP_DEBUG_LOG' ) && WP_DEBUG_LOG ) {
+            if ( count( $terms ) <= 20 ) {
+                $msg = sprintf(
+                    '[WP2ETOS] product %d queued with terms: %s',
+                    $pid,
+                    implode( ', ', $terms )
+                );
+                error_log( $msg );
+            }
+        }
     }
 
     /** Worker: create terms & attach attribute (visible=1, variation=0) */

@@ -94,6 +94,13 @@ class Woo2Etos {
             echo '<div class="notice notice-success"><p>Rimossi ' . intval( $removed ) . ' termini vuoti.</p></div>';
         }
 
+        // Show start notice if this request triggered the run
+        $start_notice = get_transient( 'woo2etos_run_notice' );
+        delete_transient( 'woo2etos_run_notice' );
+        if ( $start_notice ) {
+            echo '<div class="notice notice-info"><p>' . esc_html( $start_notice ) . '</p></div>';
+        }
+
         // Retrieve run result from transient if available
         $run_result = get_transient( 'woo2etos_at_run' );
         delete_transient( 'woo2etos_at_run' );
@@ -244,6 +251,9 @@ class Woo2Etos {
                     }
                 }
             }
+
+            // Fallback notice for the initiating page
+            set_transient( 'woo2etos_run_notice', 'Scansione avviata…', 60 );
 
             if ( function_exists( 'as_enqueue_async_action' ) ) {
                 as_enqueue_async_action( 'woo2etos_run_summary' );

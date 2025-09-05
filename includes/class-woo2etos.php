@@ -243,7 +243,7 @@ class Woo2Etos {
         if ( $do_run ){
             if ( class_exists( 'WC_Admin_Notices' ) ) {
                 WC_Admin_Notices::remove_notice( 'woo2etos_run_start' );
-                WC_Admin_Notices::add_custom_notice( 'woo2etos_run_start', 'Scansione avviata…' );
+                WC_Admin_Notices::add_custom_notice( 'woo2etos_run_start', 'Woo2Etos: Scansione avviata…' );
                 foreach ( array( 'save_notices', 'save_admin_notices', 'save' ) as $m ) {
                     if ( method_exists( 'WC_Admin_Notices', $m ) ) {
                         call_user_func( array( 'WC_Admin_Notices', $m ) );
@@ -293,7 +293,7 @@ class Woo2Etos {
         update_option( 'woo2etos_run_pending', $final['products'] );
         if ( class_exists( 'WC_Admin_Notices' ) ) {
             $message = sprintf(
-                'Sincronizzazione iniziata: %d prodotti, %d nuovi termini, %d associazioni.',
+                'Woo2Etos: Sincronizzazione iniziata: %d prodotti, %d nuovi termini, %d associazioni.',
                 $final['products'],
                 $final['new_terms'],
                 $final['links']
@@ -533,7 +533,7 @@ class Woo2Etos {
                 if ( $final ) {
                     if ( class_exists( 'WC_Admin_Notices' ) ) {
                         $message = sprintf(
-                            'Sincronizzazione completata: %d prodotti, %d nuovi termini, %d associazioni.',
+                            'Woo2Etos: Sincronizzazione completata: %d prodotti, %d nuovi termini, %d associazioni.',
                             $final['products'],
                             $final['new_terms'],
                             $final['links']
